@@ -1,0 +1,6 @@
+{
+  "name": "SmartIT Pro — Inventory, Quotation & Sales CRM",
+  "description": "Comprehensive computer hardware & IT business management suite featuring multi-location inventory, PC builder compatibility engine, PDF quotation generator, customer CRM, and sales order tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

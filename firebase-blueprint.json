@@ -1,0 +1,218 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "SmartIT Pro User Profile",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 150 },
+        "displayName": { "type": "string", "maxLength": 150 },
+        "role": { "type": "string", "enum": ["admin", "manager", "salesperson", "inventory", "viewer"] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "Admin authorization marker document",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "maxLength": 150 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["email"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Hardware and IT Product definition",
+      "type": "object",
+      "properties": {
+        "sku": { "type": "string", "maxLength": 100 },
+        "name": { "type": "string", "maxLength": 250 },
+        "brand": { "type": "string", "maxLength": 100 },
+        "model": { "type": "string", "maxLength": 100 },
+        "category": { "type": "string", "maxLength": 100 },
+        "subcategory": { "type": "string", "maxLength": 100 },
+        "sellingPrice": { "type": "number" },
+        "purchaseCost": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "archived", "out_of_stock"] }
+      },
+      "required": ["sku", "name", "category", "sellingPrice"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "CRM Customer profile",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 150 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "email": { "type": "string", "maxLength": 150 },
+        "company": { "type": "string", "maxLength": 150 },
+        "customerType": { "type": "string", "enum": ["retail", "corporate", "reseller"] }
+      },
+      "required": ["name", "phone"]
+    },
+    "Quotation": {
+      "title": "Quotation",
+      "description": "Customer hardware and services quotation",
+      "type": "object",
+      "properties": {
+        "quoteNumber": { "type": "string", "maxLength": 50 },
+        "customerId": { "type": "string", "maxLength": 128 },
+        "customerName": { "type": "string", "maxLength": 150 },
+        "grandTotal": { "type": "number" },
+        "status": { "type": "string", "enum": ["draft", "sent", "negotiation", "accepted", "rejected", "expired", "ordered"] }
+      },
+      "required": ["quoteNumber", "customerName", "grandTotal", "status"]
+    },
+    "SalesOrder": {
+      "title": "SalesOrder",
+      "description": "Confirmed hardware sales order",
+      "type": "object",
+      "properties": {
+        "orderNumber": { "type": "string", "maxLength": 50 },
+        "quotationId": { "type": "string", "maxLength": 128 },
+        "customerName": { "type": "string", "maxLength": 150 },
+        "totalAmount": { "type": "number" },
+        "paidAmount": { "type": "number" },
+        "balanceDue": { "type": "number" },
+        "paymentStatus": { "type": "string", "enum": ["unpaid", "partial", "paid"] },
+        "orderStatus": { "type": "string", "enum": ["confirmed", "processing", "delivered", "cancelled"] }
+      },
+      "required": ["orderNumber", "customerName", "totalAmount"]
+    },
+    "StockMovement": {
+      "title": "StockMovement",
+      "description": "Immutable inventory movement audit record",
+      "type": "object",
+      "properties": {
+        "productId": { "type": "string", "maxLength": 128 },
+        "productName": { "type": "string", "maxLength": 250 },
+        "quantity": { "type": "number" },
+        "type": { "type": "string", "enum": ["received", "sale", "transfer", "return", "adjustment", "damaged"] }
+      },
+      "required": ["productId", "quantity", "type"]
+    },
+    "StockLocation": {
+      "title": "StockLocation",
+      "description": "Physical warehouse or shop branch",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 100 },
+        "code": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["name", "code"]
+    },
+    "Supplier": {
+      "title": "Supplier",
+      "description": "Distributor and hardware supplier",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 150 },
+        "phone": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["name"]
+    },
+    "FollowUpTask": {
+      "title": "FollowUpTask",
+      "description": "CRM follow up and sales task",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 200 },
+        "customerName": { "type": "string", "maxLength": 150 },
+        "priority": { "type": "string", "enum": ["low", "medium", "high"] },
+        "status": { "type": "string", "enum": ["new", "requirement", "draft", "sent", "due", "negotiation", "won", "lost"] }
+      },
+      "required": ["title", "status"]
+    },
+    "PCBuild": {
+      "title": "PCBuild",
+      "description": "Custom PC builder configuration",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 150 },
+        "customerName": { "type": "string", "maxLength": 150 },
+        "budget": { "type": "number" },
+        "totalPrice": { "type": "number" },
+        "compatibilityStatus": { "type": "string", "enum": ["compatible", "incompatible", "needs_verification", "insufficient_data"] }
+      },
+      "required": ["name", "totalPrice"]
+    },
+    "CompanySettings": {
+      "title": "CompanySettings",
+      "description": "Store profile, warranty terms and numbering format",
+      "type": "object",
+      "properties": {
+        "companyName": { "type": "string", "maxLength": 200 },
+        "phone": { "type": "string", "maxLength": 100 }
+      },
+      "required": ["companyName"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "System action audit tracking",
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "maxLength": 100 },
+        "entity": { "type": "string", "maxLength": 100 }
+      },
+      "required": ["action", "entity"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "SmartIT user accounts"
+    },
+    "/admins/{adminId}": {
+      "schema": "Admin",
+      "description": "Admin authorization registry"
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Inventory hardware products"
+    },
+    "/customers/{customerId}": {
+      "schema": "Customer",
+      "description": "CRM customer records"
+    },
+    "/quotations/{quotationId}": {
+      "schema": "Quotation",
+      "description": "Sales quotations"
+    },
+    "/salesOrders/{orderId}": {
+      "schema": "SalesOrder",
+      "description": "Confirmed sales orders and payment tracking"
+    },
+    "/stockMovements/{movementId}": {
+      "schema": "StockMovement",
+      "description": "Stock audit ledger"
+    },
+    "/stockLocations/{locationId}": {
+      "schema": "StockLocation",
+      "description": "Warehouses and shop branches"
+    },
+    "/suppliers/{supplierId}": {
+      "schema": "Supplier",
+      "description": "Distributors and parts vendors"
+    },
+    "/followUpTasks/{taskId}": {
+      "schema": "FollowUpTask",
+      "description": "Sales pipeline follow-ups"
+    },
+    "/pcBuilds/{buildId}": {
+      "schema": "PCBuild",
+      "description": "Saved PC configurations"
+    },
+    "/companySettings/{settingId}": {
+      "schema": "CompanySettings",
+      "description": "Business configuration and templates"
+    },
+    "/auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "System audit trail"
+    }
+  }
+}
