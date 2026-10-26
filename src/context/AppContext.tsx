@@ -1,9 +1,14 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import {
+  createUserWithEmailAndPassword,
   GoogleAuthProvider,
   onAuthStateChanged,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
+  updateProfile,
   User as FirebaseUser,
 } from 'firebase/auth';
 import { auth } from '../lib/firebase';
@@ -81,8 +86,19 @@ interface AppContextType {
   setTargetCustomerId: (id: string | null) => void;
   prefilledPCBuildQuote: any | null;
   setPrefilledPCBuildQuote: (data: any | null) => void;
-  // Firebase Auth
+  // Firebase Auth & Cloud Sync
   firebaseUser: FirebaseUser | null;
+  isAuthChecking: boolean;
+  isEmailVerificationPending: boolean;
+  showAuthModal: boolean;
+  setShowAuthModal: (open: boolean) => void;
+  isDemoMode: boolean;
+  setIsDemoMode: (val: boolean) => void;
+  loginWithEmail: (email: string, pass: string) => Promise<{ success: boolean; error?: string; needsVerification?: boolean }>;
+  registerWithEmail: (name: string, email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
+  resendVerificationEmail: () => Promise<void>;
+  checkEmailVerified: () => Promise<boolean>;
+  resetPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
   loginWithGoogle: () => Promise<void>;
   logoutUser: () => Promise<void>;
 }
@@ -105,20 +121,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [searchQuery, setSearchQuery] = useState('');
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  // Current active user with role-based access
+  // Auth States
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
+  const [isEmailVerificationPending, setIsEmailVerificationPending] = useState<boolean>(false);
+  const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
+  const [isDemoMode, setIsDemoMode] = useState<boolean>(false);
+
+  // Active User Profile
   const [currentUser, setCurrentUser] = useState<UserProfile>({
     uid: 'user_admin_01',
     email: 'service.itlabsolutions@gmail.com',
     displayName: 'Engr. Mahfuzur Rahman (Owner)',
     role: 'admin',
   });
-  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
 
   // Listen to Firebase Auth state
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       setFirebaseUser(fbUser);
+      setIsAuthChecking(false);
+
       if (fbUser) {
+        const isGoogle = fbUser.providerData.some((p) => p.providerId === 'google.com');
+        const isVerified = fbUser.emailVerified || isGoogle;
+
+        if (!isVerified) {
+          setIsEmailVerificationPending(true);
+        } else {
+          setIsEmailVerificationPending(false);
+          setIsDemoMode(false);
+        }
+
         const email = fbUser.email?.toLowerCase() || '';
         const isAdmin = email === 'service.itlabsolutions@gmail.com' || email.includes('admin');
         setCurrentUser({
@@ -128,21 +162,156 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           role: isAdmin ? 'admin' : 'salesperson',
           photoURL: fbUser.photoURL || undefined,
         });
+
+        // Online Multi-Device Sync: Seed cloud if needed and load fresh data from Firestore
+        await dbService.syncAllCloudData();
+        await refreshData();
+      } else {
+        setIsEmailVerificationPending(false);
       }
     });
+
     return () => unsubscribe();
   }, []);
+
+  const loginWithEmail = async (email: string, pass: string) => {
+    try {
+      const cred = await signInWithEmailAndPassword(auth, email, pass);
+      const isGoogle = cred.user.providerData.some((p) => p.providerId === 'google.com');
+      
+      if (!cred.user.emailVerified && !isGoogle) {
+        setIsEmailVerificationPending(true);
+        showToast(
+          lang === 'bn'
+            ? 'আপনার ইমেইল এখনও ভেরিফাই করা হয়নি। অনুগ্রহ করে ইনবক্স চেক করে লিংকে ক্লিক করুন।'
+            : 'Email not verified yet. Please check your inbox and click the verification link.',
+          'error'
+        );
+        return { success: false, needsVerification: true };
+      }
+
+      setIsEmailVerificationPending(false);
+      setIsDemoMode(false);
+      setShowAuthModal(false);
+      showToast(
+        lang === 'bn'
+          ? `${cred.user.displayName || cred.user.email} হিসেবে সফলভাবে লগইন হয়েছে`
+          : `Signed in as ${cred.user.displayName || cred.user.email}`,
+        'success'
+      );
+      await dbService.syncAllCloudData();
+      await refreshData();
+      return { success: true };
+    } catch (err: any) {
+      let msg = err.message || 'Login failed';
+      if (
+        err.code === 'auth/invalid-credential' ||
+        err.code === 'auth/wrong-password' ||
+        err.code === 'auth/user-not-found'
+      ) {
+        msg = lang === 'bn' ? 'ভুল ইমেইল অথবা পাসওয়ার্ড।' : 'Invalid email or password.';
+      } else if (err.code === 'auth/too-many-requests') {
+        msg =
+          lang === 'bn'
+            ? 'অতিরিক্ত চেষ্টার কারণে অ্যাকাউন্ট সাময়িক ব্লক হয়েছে। কিছুক্ষণ পর চেষ্টা করুন।'
+            : 'Too many attempts. Please try again later.';
+      } else if (err.code === 'auth/operation-not-allowed') {
+        msg =
+          lang === 'bn'
+            ? 'Firebase Console-এ Email/Password সক্রিয় করতে হবে। অথবা Google দিয়ে সরাসরি ১-ক্লিকে লগইন করুন।'
+            : 'Email/Password provider must be enabled in Firebase console, or use Google Sign-in.';
+      }
+      showToast(msg, 'error');
+      return { success: false, error: msg };
+    }
+  };
+
+  const registerWithEmail = async (name: string, email: string, pass: string) => {
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, email, pass);
+      await updateProfile(cred.user, { displayName: name });
+      await sendEmailVerification(cred.user);
+      setIsEmailVerificationPending(true);
+      showToast(
+        lang === 'bn'
+          ? `ভেরিফিকেশন ইমেইল পাঠানো হয়েছে ${email} ঠিকানায়। অনুগ্রহ করে চেক করুন।`
+          : `Verification email sent to ${email}. Please check your inbox.`,
+        'success'
+      );
+      return { success: true };
+    } catch (err: any) {
+      let msg = err.message || 'Registration failed';
+      if (err.code === 'auth/email-already-in-use') {
+        msg = lang === 'bn' ? 'এই ইমেইল দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট রয়েছে।' : 'Email already in use.';
+      } else if (err.code === 'auth/weak-password') {
+        msg = lang === 'bn' ? 'পাসওয়ার্ডটি খুব দুর্বল (কমপক্ষে ৬ অক্ষর প্রয়োজন)।' : 'Password is too weak (min 6 chars).';
+      } else if (err.code === 'auth/operation-not-allowed') {
+        msg =
+          lang === 'bn'
+            ? 'Firebase Console-এ Email/Password প্রদানকারী চালু করতে হবে। বা Google দিয়ে লগইন করুন।'
+            : 'Email/Password auth must be enabled in Firebase console, or use Google Sign-In.';
+      }
+      showToast(msg, 'error');
+      return { success: false, error: msg };
+    }
+  };
+
+  const resendVerificationEmail = async () => {
+    if (auth.currentUser) {
+      await sendEmailVerification(auth.currentUser);
+      showToast(
+        lang === 'bn' ? 'নতুন ভেরিফিকেশন ইমেইল পাঠানো হয়েছে!' : 'New verification email sent!',
+        'success'
+      );
+    }
+  };
+
+  const checkEmailVerified = async () => {
+    if (!auth.currentUser) return false;
+    await auth.currentUser.reload();
+    if (auth.currentUser.emailVerified) {
+      setIsEmailVerificationPending(false);
+      setShowAuthModal(false);
+      setIsDemoMode(false);
+      await dbService.syncAllCloudData();
+      await refreshData();
+      return true;
+    }
+    return false;
+  };
+
+  const resetPassword = async (email: string) => {
+    try {
+      await sendPasswordResetEmail(auth, email);
+      showToast(
+        lang === 'bn' ? 'পাসওয়ার্ড রিসেট লিংক আপনার ইমেইলে পাঠানো হয়েছে।' : 'Password reset link sent to your email.',
+        'success'
+      );
+      return { success: true };
+    } catch (err: any) {
+      let msg = err.message || 'Failed to send reset link';
+      if (err.code === 'auth/user-not-found') {
+        msg = lang === 'bn' ? 'এই ইমেইল দিয়ে কোনো অ্যাকাউন্ট পাওয়া যায়নি।' : 'No account found with this email.';
+      }
+      return { success: false, error: msg };
+    }
+  };
 
   const loginWithGoogle = async () => {
     try {
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
+      setIsEmailVerificationPending(false);
+      setShowAuthModal(false);
+      setIsDemoMode(false);
       showToast(
         lang === 'bn'
           ? `${result.user.displayName || result.user.email} হিসেবে সফলভাবে লগইন হয়েছে`
           : `Signed in as ${result.user.displayName || result.user.email}`,
         'success'
       );
+      await dbService.syncAllCloudData();
+      await refreshData();
     } catch (err: any) {
       showToast('Google Sign-In failed: ' + (err.message || 'Unknown error'), 'error');
     }
@@ -152,6 +321,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       await signOut(auth);
       setFirebaseUser(null);
+      setIsEmailVerificationPending(false);
       setCurrentUser({
         uid: 'user_admin_01',
         email: 'service.itlabsolutions@gmail.com',
@@ -280,6 +450,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         prefilledPCBuildQuote,
         setPrefilledPCBuildQuote,
         firebaseUser,
+        isAuthChecking,
+        isEmailVerificationPending,
+        showAuthModal,
+        setShowAuthModal,
+        isDemoMode,
+        setIsDemoMode,
+        loginWithEmail,
+        registerWithEmail,
+        resendVerificationEmail,
+        checkEmailVerified,
+        resetPassword,
         loginWithGoogle,
         logoutUser,
       }}

@@ -8,7 +8,7 @@ import {
   setDoc,
   updateDoc,
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import {
   AuditLog,
   CompanySettings,
@@ -96,8 +96,120 @@ export const dbService = {
     return cachedAuditLogs;
   },
 
+  // --- Master Cloud Sync & Seeding ---
+  async syncAllCloudData(): Promise<void> {
+    if (!auth.currentUser) return;
+
+    try {
+      // 1. Settings
+      const settingsSnap = await getDoc(doc(db, 'companySettings', 'default'));
+      if (settingsSnap.exists()) {
+        cachedSettings = settingsSnap.data() as CompanySettings;
+      } else {
+        await setDoc(doc(db, 'companySettings', 'default'), INITIAL_COMPANY_SETTINGS);
+        cachedSettings = INITIAL_COMPANY_SETTINGS;
+      }
+
+      // 2. Locations
+      const locSnap = await getDocs(collection(db, 'stockLocations'));
+      if (!locSnap.empty) {
+        const list: StockLocation[] = [];
+        locSnap.forEach((d) => list.push({ ...(d.data() as StockLocation), id: d.id }));
+        cachedLocations = list;
+      } else {
+        for (const loc of INITIAL_LOCATIONS) {
+          await setDoc(doc(db, 'stockLocations', loc.id), loc);
+        }
+        cachedLocations = INITIAL_LOCATIONS;
+      }
+
+      // 3. Suppliers
+      const supSnap = await getDocs(collection(db, 'suppliers'));
+      if (!supSnap.empty) {
+        const list: Supplier[] = [];
+        supSnap.forEach((d) => list.push({ ...(d.data() as Supplier), id: d.id }));
+        cachedSuppliers = list;
+      } else {
+        for (const sup of INITIAL_SUPPLIERS) {
+          await setDoc(doc(db, 'suppliers', sup.id), sup);
+        }
+        cachedSuppliers = INITIAL_SUPPLIERS;
+      }
+
+      // 4. Products
+      const prodSnap = await getDocs(collection(db, 'products'));
+      if (!prodSnap.empty) {
+        const list: Product[] = [];
+        prodSnap.forEach((d) => list.push({ ...(d.data() as Product), id: d.id }));
+        cachedProducts = list;
+      } else {
+        for (const prod of INITIAL_PRODUCTS) {
+          await setDoc(doc(db, 'products', prod.id), prod);
+        }
+        cachedProducts = INITIAL_PRODUCTS;
+      }
+
+      // 5. Customers
+      const custSnap = await getDocs(collection(db, 'customers'));
+      if (!custSnap.empty) {
+        const list: Customer[] = [];
+        custSnap.forEach((d) => list.push({ ...(d.data() as Customer), id: d.id }));
+        cachedCustomers = list;
+      } else {
+        for (const cust of INITIAL_CUSTOMERS) {
+          await setDoc(doc(db, 'customers', cust.id), cust);
+        }
+        cachedCustomers = INITIAL_CUSTOMERS;
+      }
+
+      // 6. Quotations
+      const quoteSnap = await getDocs(collection(db, 'quotations'));
+      if (!quoteSnap.empty) {
+        const list: Quotation[] = [];
+        quoteSnap.forEach((d) => list.push({ ...(d.data() as Quotation), id: d.id }));
+        cachedQuotations = list;
+      } else {
+        for (const q of INITIAL_QUOTATIONS) {
+          await setDoc(doc(db, 'quotations', q.id), q);
+        }
+        cachedQuotations = INITIAL_QUOTATIONS;
+      }
+
+      // 7. Orders
+      const orderSnap = await getDocs(collection(db, 'salesOrders'));
+      if (!orderSnap.empty) {
+        const list: SalesOrder[] = [];
+        orderSnap.forEach((d) => list.push({ ...(d.data() as SalesOrder), id: d.id }));
+        cachedOrders = list;
+      } else {
+        for (const o of INITIAL_ORDERS) {
+          await setDoc(doc(db, 'salesOrders', o.id), o);
+        }
+        cachedOrders = INITIAL_ORDERS;
+      }
+
+      // 8. Follow-ups
+      const followSnap = await getDocs(collection(db, 'followUpTasks'));
+      if (!followSnap.empty) {
+        const list: FollowUpTask[] = [];
+        followSnap.forEach((d) => list.push({ ...(d.data() as FollowUpTask), id: d.id }));
+        cachedFollowups = list;
+      } else {
+        for (const f of INITIAL_FOLLOWUPS) {
+          await setDoc(doc(db, 'followUpTasks', f.id), f);
+        }
+        cachedFollowups = INITIAL_FOLLOWUPS;
+      }
+    } catch (err) {
+      console.warn('Cloud sync and seed notice:', err);
+    }
+  },
+
   // --- Company Settings ---
   async getSettings(): Promise<CompanySettings> {
+    if (!auth.currentUser) {
+      return cachedSettings;
+    }
     try {
       const snap = await getDoc(doc(db, 'companySettings', 'default'));
       if (snap.exists()) {
@@ -105,6 +217,10 @@ export const dbService = {
         cachedSettings = { ...cachedSettings, ...data };
         setLocal('settings', cachedSettings);
         return cachedSettings;
+      } else {
+        await setDoc(doc(db, 'companySettings', 'default'), INITIAL_COMPANY_SETTINGS);
+        cachedSettings = INITIAL_COMPANY_SETTINGS;
+        return INITIAL_COMPANY_SETTINGS;
       }
     } catch {
       // Use cached
@@ -121,10 +237,12 @@ export const dbService = {
     cachedSettings = updated;
     setLocal('settings', updated);
 
-    try {
-      await setDoc(doc(db, 'companySettings', 'default'), updated);
-    } catch (e) {
-      console.warn('Firestore set settings failed, kept in local state:', e);
+    if (auth.currentUser) {
+      try {
+        await setDoc(doc(db, 'companySettings', 'default'), updated);
+      } catch (e) {
+        console.warn('Firestore set settings failed, kept in local state:', e);
+      }
     }
 
     await this.logAction('UPDATE_SETTINGS', 'companySettings', 'default', 'Updated company profile and settings', user);
@@ -133,6 +251,9 @@ export const dbService = {
 
   // --- Products ---
   async getProducts(): Promise<Product[]> {
+    if (!auth.currentUser) {
+      return cachedProducts;
+    }
     try {
       const snap = await getDocs(collection(db, 'products'));
       if (!snap.empty) {
@@ -160,10 +281,12 @@ export const dbService = {
     cachedProducts = [newProduct, ...cachedProducts];
     setLocal('products', cachedProducts);
 
-    try {
-      await setDoc(doc(db, 'products', id), newProduct);
-    } catch (e) {
-      handleFirestoreError(e, OperationType.CREATE, `products/${id}`);
+    if (auth.currentUser) {
+      try {
+        await setDoc(doc(db, 'products', id), newProduct);
+      } catch (e) {
+        handleFirestoreError(e, OperationType.CREATE, `products/${id}`);
+      }
     }
 
     await this.logAction('CREATE_PRODUCT', 'products', id, `Added product: ${newProduct.name} (${newProduct.sku})`, user);
@@ -183,10 +306,12 @@ export const dbService = {
     cachedProducts = cachedProducts.map((p) => (p.id === id ? updated : p));
     setLocal('products', cachedProducts);
 
-    try {
-      await setDoc(doc(db, 'products', id), updated);
-    } catch (e) {
-      handleFirestoreError(e, OperationType.UPDATE, `products/${id}`);
+    if (auth.currentUser) {
+      try {
+        await setDoc(doc(db, 'products', id), updated);
+      } catch (e) {
+        handleFirestoreError(e, OperationType.UPDATE, `products/${id}`);
+      }
     }
 
     await this.logAction('UPDATE_PRODUCT', 'products', id, `Updated product: ${updated.name}`, user);
@@ -198,10 +323,12 @@ export const dbService = {
     cachedProducts = cachedProducts.filter((p) => p.id !== id);
     setLocal('products', cachedProducts);
 
-    try {
-      await deleteDoc(doc(db, 'products', id));
-    } catch (e) {
-      handleFirestoreError(e, OperationType.DELETE, `products/${id}`);
+    if (auth.currentUser) {
+      try {
+        await deleteDoc(doc(db, 'products', id));
+      } catch (e) {
+        handleFirestoreError(e, OperationType.DELETE, `products/${id}`);
+      }
     }
 
     if (existing) {
@@ -239,6 +366,9 @@ export const dbService = {
 
   // --- Customers ---
   async getCustomers(): Promise<Customer[]> {
+    if (!auth.currentUser) {
+      return cachedCustomers;
+    }
     try {
       const snap = await getDocs(collection(db, 'customers'));
       if (!snap.empty) {
@@ -266,10 +396,12 @@ export const dbService = {
     cachedCustomers = [newCust, ...cachedCustomers];
     setLocal('customers', cachedCustomers);
 
-    try {
-      await setDoc(doc(db, 'customers', id), newCust);
-    } catch (e) {
-      handleFirestoreError(e, OperationType.CREATE, `customers/${id}`);
+    if (auth.currentUser) {
+      try {
+        await setDoc(doc(db, 'customers', id), newCust);
+      } catch (e) {
+        handleFirestoreError(e, OperationType.CREATE, `customers/${id}`);
+      }
     }
 
     await this.logAction('CREATE_CUSTOMER', 'customers', id, `Added customer: ${newCust.name} (${newCust.phone})`, user);
@@ -289,10 +421,12 @@ export const dbService = {
     cachedCustomers = cachedCustomers.map((c) => (c.id === id ? updated : c));
     setLocal('customers', cachedCustomers);
 
-    try {
-      await setDoc(doc(db, 'customers', id), updated);
-    } catch (e) {
-      handleFirestoreError(e, OperationType.UPDATE, `customers/${id}`);
+    if (auth.currentUser) {
+      try {
+        await setDoc(doc(db, 'customers', id), updated);
+      } catch (e) {
+        handleFirestoreError(e, OperationType.UPDATE, `customers/${id}`);
+      }
     }
 
     await this.logAction('UPDATE_CUSTOMER', 'customers', id, `Updated customer: ${updated.name}`, user);
@@ -301,6 +435,9 @@ export const dbService = {
 
   // --- Quotations ---
   async getQuotations(): Promise<Quotation[]> {
+    if (!auth.currentUser) {
+      return cachedQuotations;
+    }
     try {
       const snap = await getDocs(collection(db, 'quotations'));
       if (!snap.empty) {
@@ -328,10 +465,12 @@ export const dbService = {
     cachedQuotations = [newQuote, ...cachedQuotations];
     setLocal('quotations', cachedQuotations);
 
-    try {
-      await setDoc(doc(db, 'quotations', id), newQuote);
-    } catch (e) {
-      handleFirestoreError(e, OperationType.CREATE, `quotations/${id}`);
+    if (auth.currentUser) {
+      try {
+        await setDoc(doc(db, 'quotations', id), newQuote);
+      } catch (e) {
+        handleFirestoreError(e, OperationType.CREATE, `quotations/${id}`);
+      }
     }
 
     await this.logAction('CREATE_QUOTATION', 'quotations', id, `Created quotation ${newQuote.quoteNumber} for ${newQuote.customerName} total ৳${newQuote.grandTotal}`, user);
@@ -351,10 +490,12 @@ export const dbService = {
     cachedQuotations = cachedQuotations.map((q) => (q.id === id ? updated : q));
     setLocal('quotations', cachedQuotations);
 
-    try {
-      await setDoc(doc(db, 'quotations', id), updated);
-    } catch (e) {
-      handleFirestoreError(e, OperationType.UPDATE, `quotations/${id}`);
+    if (auth.currentUser) {
+      try {
+        await setDoc(doc(db, 'quotations', id), updated);
+      } catch (e) {
+        handleFirestoreError(e, OperationType.UPDATE, `quotations/${id}`);
+      }
     }
 
     await this.logAction('UPDATE_QUOTATION', 'quotations', id, `Updated quote ${updated.quoteNumber} status: ${updated.status}`, user);
@@ -363,6 +504,9 @@ export const dbService = {
 
   // --- Sales Orders & Payments ---
   async getOrders(): Promise<SalesOrder[]> {
+    if (!auth.currentUser) {
+      return cachedOrders;
+    }
     try {
       const snap = await getDocs(collection(db, 'salesOrders'));
       if (!snap.empty) {
@@ -551,6 +695,20 @@ export const dbService = {
 
   // --- Inventory & Stock Movements ---
   async getLocations(): Promise<StockLocation[]> {
+    if (!auth.currentUser) {
+      return cachedLocations;
+    }
+    try {
+      const snap = await getDocs(collection(db, 'stockLocations'));
+      if (!snap.empty) {
+        const list: StockLocation[] = [];
+        snap.forEach((d) => list.push({ ...(d.data() as StockLocation), id: d.id }));
+        cachedLocations = list;
+        return list;
+      }
+    } catch {
+      // fallback
+    }
     return cachedLocations;
   },
 
@@ -659,6 +817,20 @@ export const dbService = {
 
   // --- Suppliers ---
   async getSuppliers(): Promise<Supplier[]> {
+    if (!auth.currentUser) {
+      return cachedSuppliers;
+    }
+    try {
+      const snap = await getDocs(collection(db, 'suppliers'));
+      if (!snap.empty) {
+        const list: Supplier[] = [];
+        snap.forEach((d) => list.push({ ...(d.data() as Supplier), id: d.id }));
+        cachedSuppliers = list;
+        return list;
+      }
+    } catch {
+      // fallback
+    }
     return cachedSuppliers;
   },
 
@@ -684,6 +856,9 @@ export const dbService = {
 
   // --- Follow-ups CRM Tasks ---
   async getFollowUps(): Promise<FollowUpTask[]> {
+    if (!auth.currentUser) {
+      return cachedFollowups;
+    }
     try {
       const snap = await getDocs(collection(db, 'followUpTasks'));
       if (!snap.empty) {

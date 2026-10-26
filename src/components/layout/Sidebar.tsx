@@ -24,7 +24,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onCloseMobile }) => {
-  const { lang, t, activeTab, setActiveTab, products, followups, quotations } = useApp();
+  const { lang, t, activeTab, setActiveTab, products, followups, quotations, settings } = useApp();
 
   const lowStockCount = products.filter((p) => p.totalStock <= p.reorderLevel).length;
   const pendingFollowups = followups.filter((f) => f.status === 'due').length;
@@ -65,15 +65,31 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onCloseMobile }) => {
       >
         {/* App Brand Header */}
         <div className="flex h-16 items-center gap-3 border-b border-slate-200 px-5">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white font-bold shadow-md shadow-blue-500/20">
-            <Cpu className="h-6 w-6" />
-          </div>
+          {settings?.logoUrl ? (
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white p-1 shadow-xs overflow-hidden shrink-0">
+              <img
+                src={settings.logoUrl}
+                alt={settings.companyName || 'Logo'}
+                className="h-full w-full object-contain"
+              />
+            </div>
+          ) : (
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white font-bold shadow-md shadow-blue-500/20 shrink-0">
+              <Cpu className="h-6 w-6" />
+            </div>
+          )}
           <div className="overflow-hidden">
-            <h1 className="text-base font-bold tracking-tight text-slate-900 leading-none">
-              SmartIT <span className="text-blue-600">Pro</span>
+            <h1 className="text-base font-bold tracking-tight text-slate-900 leading-none truncate">
+              {settings?.companyName ? (
+                settings.companyName
+              ) : (
+                <>SmartIT <span className="text-blue-600">Pro</span></>
+              )}
             </h1>
             <p className="text-[11px] text-slate-500 truncate mt-1">
-              {lang === 'bn' ? 'কম্পিউটার ও আইটি সিআরএম' : 'Hardware & IT CRM'}
+              {lang === 'bn'
+                ? (settings?.taglineBn || 'কম্পিউটার ও আইটি সিআরএম')
+                : (settings?.tagline || 'Hardware & IT CRM')}
             </p>
           </div>
         </div>

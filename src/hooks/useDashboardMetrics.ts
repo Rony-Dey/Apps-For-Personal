@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { collection, onSnapshot } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { dbService } from '../services/db';
 import { Customer, FollowUpTask, Product, Quotation, SalesOrder } from '../types';
 
@@ -68,133 +69,148 @@ export function useDashboardMetrics(): DashboardMetrics {
     let unsubQuotations: (() => void) | null = null;
     let unsubOrders: (() => void) | null = null;
     let unsubFollowups: (() => void) | null = null;
-
     let mounted = true;
 
-    try {
-      // 1. Real-time products listener
-      unsubProducts = onSnapshot(
-        collection(db, 'products'),
-        (snapshot) => {
-          if (!mounted) return;
-          if (!snapshot.empty) {
-            const list: Product[] = [];
-            snapshot.forEach((doc) => {
-              list.push({ ...(doc.data() as Product), id: doc.id });
-            });
-            setProducts(list);
-            setIsRealtime(true);
-            setLastUpdated(new Date().toISOString());
-          } else {
-            // Empty firestore collection: check cache/fallback
-            dbService.getProducts().then((cached) => {
-              if (mounted) setProducts(cached);
-            });
-          }
-          setIsLoading(false);
-        },
-        (error) => {
-          console.warn('Firestore products listener error, falling back to local DB cache:', error);
-          loadFallbackData();
-          try {
+    const cleanupListeners = () => {
+      if (unsubProducts) {
+        unsubProducts();
+        unsubProducts = null;
+      }
+      if (unsubQuotations) {
+        unsubQuotations();
+        unsubQuotations = null;
+      }
+      if (unsubOrders) {
+        unsubOrders();
+        unsubOrders = null;
+      }
+      if (unsubFollowups) {
+        unsubFollowups();
+        unsubFollowups = null;
+      }
+      setIsRealtime(false);
+    };
+
+    // Firebase Skill rule: Only attach onSnapshot listeners if auth is ready and user is authenticated
+    const unsubAuth = onAuthStateChanged(auth, (user: FirebaseUser | null) => {
+      if (!mounted) return;
+
+      if (!user) {
+        // Unauthenticated session: load local cache/seed data and do not trigger unauthorized listeners
+        cleanupListeners();
+        loadFallbackData();
+        return;
+      }
+
+      // Authenticated session: attach real-time Firestore listeners
+      cleanupListeners();
+
+      try {
+        // 1. Real-time products listener
+        unsubProducts = onSnapshot(
+          collection(db, 'products'),
+          (snapshot) => {
+            if (!mounted) return;
+            if (!snapshot.empty) {
+              const list: Product[] = [];
+              snapshot.forEach((doc) => {
+                list.push({ ...(doc.data() as Product), id: doc.id });
+              });
+              setProducts(list);
+              setIsRealtime(true);
+              setLastUpdated(new Date().toISOString());
+            } else {
+              dbService.getProducts().then((cached) => {
+                if (mounted) setProducts(cached);
+              });
+            }
+            setIsLoading(false);
+          },
+          (error) => {
+            console.warn('Firestore products listener error, falling back to local DB cache:', error);
+            loadFallbackData();
             handleFirestoreError(error, OperationType.GET, 'products');
-          } catch {
-            // Ignored in hook so component doesn't crash
           }
-        }
-      );
+        );
 
-      // 2. Real-time quotations listener
-      unsubQuotations = onSnapshot(
-        collection(db, 'quotations'),
-        (snapshot) => {
-          if (!mounted) return;
-          if (!snapshot.empty) {
-            const list: Quotation[] = [];
-            snapshot.forEach((doc) => {
-              list.push({ ...(doc.data() as Quotation), id: doc.id });
-            });
-            setQuotations(list);
-            setLastUpdated(new Date().toISOString());
-          } else {
-            dbService.getQuotations().then((cached) => {
-              if (mounted) setQuotations(cached);
-            });
-          }
-        },
-        (error) => {
-          try {
+        // 2. Real-time quotations listener
+        unsubQuotations = onSnapshot(
+          collection(db, 'quotations'),
+          (snapshot) => {
+            if (!mounted) return;
+            if (!snapshot.empty) {
+              const list: Quotation[] = [];
+              snapshot.forEach((doc) => {
+                list.push({ ...(doc.data() as Quotation), id: doc.id });
+              });
+              setQuotations(list);
+              setLastUpdated(new Date().toISOString());
+            } else {
+              dbService.getQuotations().then((cached) => {
+                if (mounted) setQuotations(cached);
+              });
+            }
+          },
+          (error) => {
             handleFirestoreError(error, OperationType.GET, 'quotations');
-          } catch {
-            // Ignored in hook
           }
-        }
-      );
+        );
 
-      // 3. Real-time sales orders listener
-      unsubOrders = onSnapshot(
-        collection(db, 'salesOrders'),
-        (snapshot) => {
-          if (!mounted) return;
-          if (!snapshot.empty) {
-            const list: SalesOrder[] = [];
-            snapshot.forEach((doc) => {
-              list.push({ ...(doc.data() as SalesOrder), id: doc.id });
-            });
-            setOrders(list);
-            setLastUpdated(new Date().toISOString());
-          } else {
-            dbService.getOrders().then((cached) => {
-              if (mounted) setOrders(cached);
-            });
-          }
-        },
-        (error) => {
-          try {
+        // 3. Real-time sales orders listener
+        unsubOrders = onSnapshot(
+          collection(db, 'salesOrders'),
+          (snapshot) => {
+            if (!mounted) return;
+            if (!snapshot.empty) {
+              const list: SalesOrder[] = [];
+              snapshot.forEach((doc) => {
+                list.push({ ...(doc.data() as SalesOrder), id: doc.id });
+              });
+              setOrders(list);
+              setLastUpdated(new Date().toISOString());
+            } else {
+              dbService.getOrders().then((cached) => {
+                if (mounted) setOrders(cached);
+              });
+            }
+          },
+          (error) => {
             handleFirestoreError(error, OperationType.GET, 'salesOrders');
-          } catch {
-            // Ignored in hook
           }
-        }
-      );
+        );
 
-      // 4. Real-time follow-up tasks listener
-      unsubFollowups = onSnapshot(
-        collection(db, 'followUpTasks'),
-        (snapshot) => {
-          if (!mounted) return;
-          if (!snapshot.empty) {
-            const list: FollowUpTask[] = [];
-            snapshot.forEach((doc) => {
-              list.push({ ...(doc.data() as FollowUpTask), id: doc.id });
-            });
-            setFollowups(list);
-            setLastUpdated(new Date().toISOString());
-          } else {
-            dbService.getFollowUps().then((cached) => {
-              if (mounted) setFollowups(cached);
-            });
-          }
-        },
-        (error) => {
-          try {
+        // 4. Real-time follow-up tasks listener
+        unsubFollowups = onSnapshot(
+          collection(db, 'followUpTasks'),
+          (snapshot) => {
+            if (!mounted) return;
+            if (!snapshot.empty) {
+              const list: FollowUpTask[] = [];
+              snapshot.forEach((doc) => {
+                list.push({ ...(doc.data() as FollowUpTask), id: doc.id });
+              });
+              setFollowups(list);
+              setLastUpdated(new Date().toISOString());
+            } else {
+              dbService.getFollowUps().then((cached) => {
+                if (mounted) setFollowups(cached);
+              });
+            }
+          },
+          (error) => {
             handleFirestoreError(error, OperationType.GET, 'followUpTasks');
-          } catch {
-            // Ignored in hook
           }
-        }
-      );
-    } catch (err) {
-      console.warn('Real-time listener setup caught error:', err);
-      loadFallbackData();
-    }
+        );
+      } catch (err) {
+        console.warn('Real-time listener setup caught error:', err);
+        loadFallbackData();
+      }
+    });
 
     return () => {
       mounted = false;
-      if (unsubProducts) unsubProducts();
-      if (unsubQuotations) unsubQuotations();
-      if (unsubOrders) unsubOrders();
-      if (unsubFollowups) unsubFollowups();
+      unsubAuth();
+      cleanupListeners();
     };
   }, []);
 
